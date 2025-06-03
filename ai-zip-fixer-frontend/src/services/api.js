@@ -1,6 +1,8 @@
 import axios from 'axios';
 
-const API_BASE_URL = 'http://localhost:5000/api'; // Ensure this is correct
+const API_BASE_URL = 'https://code-fixer-jwe9.onrender.com';
+
+// 'http://localhost:5000/api'; // Ensure this is correct
 
 export const uploadProjectZip = async (formData) => {
   try {
