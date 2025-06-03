@@ -1,6 +1,6 @@
 import axios from 'axios';
 
-const API_BASE_URL = 'https://code-fixer-jwe9.onrender.com';
+const API_BASE_URL = 'https://code-fixer-jwe9.onrender.com/api';
 
 // 'http://localhost:5000/api'; // Ensure this is correct
 
