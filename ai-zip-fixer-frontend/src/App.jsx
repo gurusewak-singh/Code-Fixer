@@ -2,31 +2,27 @@ import React, { useState } from 'react';
 import FileUpload from './components/FileUpload';
 import FileList from './components/FileList';
 import Result from './components/Result';
-import HeroPage from './components/HeroPage'; // Import HeroPage
+import HeroPage from './components/HeroPage';
 import { fixCodeFiles } from './services/api';
 import { SparklesIcon } from '@heroicons/react/24/outline';
 
 const App = () => {
-  const [showAppContent, setShowAppContent] = useState(false); // Controls Hero vs App
+  const [showAppContent, setShowAppContent] = useState(false);
   const [extractedFiles, setExtractedFiles] = useState([]);
   const [extractedPath, setExtractedPath] = useState(null);
   const [fixResult, setFixResult] = useState(null);
   const [error, setError] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
   const [loadingMessage, setLoadingMessage] = useState('');
+  const [userPrompt, setUserPrompt] = useState(''); // <-- NEW: State for user's prompt
 
-  const handleGetStarted = () => {
-    setShowAppContent(true);
-  };
+  const handleGetStarted = () => setShowAppContent(true);
 
   const handleFilesUploaded = (uploadData) => {
     setError(null);
     setFixResult(null);
     setExtractedFiles(uploadData.files || []);
     setExtractedPath(uploadData.extractedPath || null);
-    if (uploadData.message) {
-      console.log("Upload successful:", uploadData.message);
-    }
   };
 
   const handleProcessingState = (processing, message = '') => {
@@ -38,12 +34,12 @@ const App = () => {
     setError(errorMessage);
     setExtractedFiles([]);
     setExtractedPath(null);
-    setFixResult(null); // Clear previous results on new error
+    setFixResult(null);
   };
 
   const handleFixCode = async () => {
-    if (!extractedFiles.length || !extractedPath) {
-      setError('No files to fix, or extraction path is missing. Please upload a ZIP file first.');
+    if (!extractedFiles.length) {
+      setError('No files to fix. Please upload a file first.');
       return;
     }
     setError(null);
@@ -56,14 +52,14 @@ const App = () => {
     }));
 
     try {
-      const result = await fixCodeFiles(filesToFix, extractedPath);
+      // Pass the user's prompt to the API call
+      const result = await fixCodeFiles(filesToFix, extractedPath, userPrompt);
       setFixResult(result);
       if (!result.success) {
-        setError(result.message || "Failed to fix files. See details or check console.");
+        setError(result.message || "Failed to fix files.");
       }
     } catch (err) {
-      console.error('Error during fix process:', err);
-      const errorMessage = err.message || 'An unexpected error occurred while fixing the code.';
+      const errorMessage = err.message || 'An unexpected error occurred.';
       setError(errorMessage);
       setFixResult({ success: false, message: errorMessage });
     } finally {
@@ -78,8 +74,7 @@ const App = () => {
     setError(null);
     setIsLoading(false);
     setLoadingMessage('');
-    // Optionally, could navigate back to FileUpload step or even HeroPage
-    // For now, just resets state for new upload on the same screen.
+    setUserPrompt(''); // Reset the prompt on new session
   };
 
   if (!showAppContent) {
@@ -93,7 +88,7 @@ const App = () => {
           AI CodeFixer Pro
         </h1>
         <p className="mt-3 text-gray-400 text-sm sm:text-base max-w-xl">
-          Upload your project's .zip file. Our AI will analyze, fix, and even create necessary files to enhance your codebase.
+          Upload your project, provide instructions, and let our AI enhance your codebase.
         </p>
       </header>
 
@@ -103,6 +98,7 @@ const App = () => {
             onFilesUploaded={handleFilesUploaded}
             onError={handleError}
             onProcessing={handleProcessingState}
+            isProcessing={isLoading}
           />
         )}
 
@@ -115,7 +111,6 @@ const App = () => {
             <p className="mt-4 text-lg font-semibold text-gray-200">{loadingMessage || 'Processing...'}</p>
           </div>
         )}
-
         {error && !isLoading && (
           <div className="bg-red-800/70 border border-red-600 text-red-100 px-4 py-3 rounded-lg relative w-full max-w-lg text-sm shadow-lg" role="alert">
             <strong className="font-bold">Error: </strong>
@@ -126,32 +121,43 @@ const App = () => {
         {!isLoading && extractedFiles.length > 0 && !fixResult && (
           <>
             <FileList files={extractedFiles} />
+
+            {/* NEW: User Prompt Input Section */}
+            <div className="bg-gray-800 p-6 rounded-xl shadow-2xl w-full">
+              <label htmlFor="user-prompt" className="block text-sm font-medium text-gray-300 mb-2">
+                Provide Instructions (Optional)
+              </label>
+              <textarea
+                id="user-prompt"
+                rows="3"
+                value={userPrompt}
+                onChange={(e) => setUserPrompt(e.target.value)}
+                placeholder="e.g., 'Refactor this into a class', 'Translate this Python code to JavaScript', 'Add comments to explain this function'"
+                className="w-full p-3 bg-gray-900 text-gray-200 border border-gray-700 rounded-md focus:ring-2 focus:ring-violet-500 focus:border-violet-500 transition"
+              />
+            </div>
+
             <button
               onClick={handleFixCode}
               disabled={isLoading}
-              className="w-full bg-gradient-to-r from-teal-500 to-cyan-500 hover:from-teal-600 hover:to-cyan-600 text-white font-bold py-3.5 px-4 rounded-lg shadow-lg focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-900 focus:ring-cyan-400 transition duration-150 ease-in-out disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center text-lg"
+              className="w-full bg-gradient-to-r from-teal-500 to-cyan-500 hover:from-teal-600 hover:to-cyan-600 text-white font-bold py-3.5 px-4 rounded-lg shadow-lg"
             >
-              <SparklesIcon className="h-6 w-6 mr-2" />
+              <SparklesIcon className="h-6 w-6 mr-2 inline-block" />
               Let AI Fix The Code!
             </button>
           </>
         )}
 
-        {!isLoading && fixResult && (
-            <Result resultData={fixResult} />
-        )}
-        {!isLoading && (fixResult || error) && ( // Show "Process Another" if there's a result OR an error after upload
-             <button
-                onClick={resetApp}
-                className="mt-8 w-full max-w-lg bg-gray-700 hover:bg-gray-600 text-gray-300 font-semibold py-3 px-4 rounded-lg shadow-md focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-900 focus:ring-gray-500 transition duration-150 ease-in-out"
-            >
-                Process Another Project
+        {!isLoading && fixResult && ( <Result resultData={fixResult} /> )}
+
+        {!isLoading && (fixResult || error) && (
+             <button onClick={resetApp} className="mt-8 w-full max-w-lg bg-gray-700 hover:bg-gray-600 text-gray-300 font-semibold py-3 px-4 rounded-lg shadow-md">
+                Process Another File
             </button>
         )}
       </main>
       <footer className="mt-12 text-center text-gray-500 text-xs">
-        <p>© {new Date().getFullYear()} CodeFixer Inc. All rights reserved.</p>
-        <p>Powered by AI magic and robust engineering.</p>
+          <p>© {new Date().getFullYear()} CodeFixer Inc. All rights reserved.</p>
       </footer>
     </div>
   );

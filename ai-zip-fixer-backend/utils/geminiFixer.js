@@ -15,135 +15,113 @@ const safetySettings = [
   { category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE },
 ];
 
-// Helper to attempt stripping markdown if AI unexpectedly wraps JSON
 function stripPotentialMarkdownJSON(text) {
   if (typeof text !== 'string') return text;
   const trimmedText = text.trim();
-  // Regex to match ```json ... ``` or just ``` ... ```
   const codeBlockRegex = /^```(?:json)?\s*([\s\S]*?)\s*```$/;
   const match = trimmedText.match(codeBlockRegex);
   if (match && match[1]) {
     return match[1].trim();
   }
-  return trimmedText; // Return original trimmed text if no block is found
+  return trimmedText;
 }
 
-async function fixProjectBundle(originalFiles) {
+async function fixProjectBundle(originalFiles, userPrompt) {
   try {
     const model = genAI.getGenerativeModel({
-      model: "gemini-2.0-flash",
+      model: "gemini-1.5-flash",
       safetySettings,
       generationConfig: {
-        responseMimeType: "application/json", // Crucial for JSON output
+        responseMimeType: "application/json",
       }
     });
 
     let projectFilesBundle = "";
     originalFiles.forEach(file => {
-      projectFilesBundle += `### FILENAME: ${file.filename}\n`;
-      projectFilesBundle += `${file.content}\n`; // Ensure content is string
-      projectFilesBundle += `### --- END OF ${file.filename} ---\n\n`;
+      projectFilesBundle += `### FILENAME: ${file.filename}\n${file.content}\n### --- END OF ${file.filename} ---\n\n`;
     });
 
-//     const prompt = `
-// You are an expert software developer. Your task is to analyze the following project.
-// The project files are provided below, each delimited by "### FILENAME: ..." and "### --- END OF ... ---".
-// Identify and correct any bugs, syntax errors, or violations of common best practices in the code files.
-// You can also create new files if they are necessary for the project's improvement or functionality (e.g., a missing configuration file, a new utility module based on refactoring).
-// For non-code files like .env or .gitignore, generally return them as is unless a change is directly necessitated by code modifications you are making (e.g., adding a new environment variable used by new code, or a new file to .gitignore).
+    const userInstructionSection = userPrompt
+      ? `
+--- USER INSTRUCTIONS ---
+The user has provided specific instructions. You MUST prioritize these.
+User's Request: "${userPrompt}"
+--- END USER INSTRUCTIONS ---
+`
+      : '';
 
-// Your response MUST be a valid JSON array of file objects. Each object in the array should represent a file that should be included in the final fixed project.
-// Each file object must have the following structure:
-// {
-//   "filename": "path/to/file.ext", // Original path for existing files, or new path for new files. Preserve directory structure.
-//   "content": "...", // The full, corrected, or new content of the file as a string.
-//   "action": "modified" | "created" | "unchanged" // Indicate if the file was modified, newly created, or is an original file returned unchanged.
-// }
+    // THE CORE FIX IS IN THIS PROMPT
+    const prompt = `
+You are a JSON generation expert acting as a world-class software engineer. Your ONLY output must be a single, valid JSON array.
 
-// Ensure ALL files that should be in the final output (including those you didn't change, or new ones you created) are present in the JSON array.
-// If you create a new file, ensure its "filename" reflects its intended path within the project structure.
-// Return ONLY the JSON array. Do not include any other text, explanations, or markdown formatting around the JSON.
+${userInstructionSection}
 
-// --- START PROJECT FILES ---
-// ${projectFilesBundle}
-// --- END PROJECT FILES ---
-// `;
+Analyze the provided project files. Your task is to fix all bugs, logical errors, and bad practices.
 
-const prompt = `
-You are an expert software developer. Your task is to analyze the following project.
-The project files are provided below, each delimited by "### FILENAME: ..." and "### --- END OF ... ---".
-Identify and correct any bugs, syntax errors, or violations of common best practices in the code files.
-You can also create new files if necessary.
-For non-code files like .env or .gitignore, generally return them as is unless a change is directly necessitated by code modifications.
-
-Your response MUST be a valid JSON array of file objects.
-Each file object MUST have this exact structure:
+Your response MUST be a single, valid JSON array of file objects. Each object MUST have this exact structure:
 {
   "filename": "path/to/file.ext",
-  "content": "...", // The file's complete content as a SINGLE JSON STRING LITERAL.
-  "action": "modified" | "created" | "unchanged"
+  "content": "...",
+  "action": "modified" | "created" | "unchanged" | "deleted",
+  "explanation": "A clear summary of changes. This is mandatory."
 }
 
-CRITICAL RULES FOR THE "content" FIELD:
-1.  The value for "content" MUST be a single, contiguous JSON string.
-2.  ALL special characters within the file's actual content (e.g., double quotes, backslashes, newlines, tabs) MUST be correctly escaped to form a valid JSON string (e.g., use \\" for a double quote within the content, \\\\ for a backslash, \\n for a newline).
-3.  DO NOT use any programming language constructs like string concatenation operators (e.g., "+") or template literals *within the string value generated for the "content" field*. The "content" field must be a direct string representation of the file's text.
-4.  If the original file content contains comments, these comments must be part of the single string value for "content". Ensure they do not break the overall JSON structure of your response.
-
-Ensure ALL files for the final output are in the JSON array.
-Preserve directory structure in "filename".
-Return ONLY the JSON array. No other text, explanations, or markdown.
+**EXTREMELY CRITICAL RULE FOR THE "content" FIELD:**
+The value for the "content" field MUST be a SINGLE LINE JSON STRING. ALL special characters inside the file content MUST be escaped.
+- A backslash (\\) must become a double backslash (\\\\).
+- A double quote (") must become a backslash-quote (\\").
+- A newline must become a backslash-n (\\n).
+- A tab must become a backslash-t (\\t).
+- Other control characters (carriage return, form feed, etc.) must also be properly escaped.
+FAILURE TO DO THIS WILL BREAK THE APPLICATION. DO NOT USE multiline strings.
 
 --- START PROJECT FILES ---
 ${projectFilesBundle}
 --- END PROJECT FILES ---
 `;
 
-    console.log(`[geminiFixer] Sending prompt to Gemini for project bundle. Total original files: ${originalFiles.length}. Prompt length: ${prompt.length}`);
-    // console.debug("[geminiFixer] Prompt (first 500 chars):", prompt.substring(0, 500)); // For debugging
-
-    const result = await model.generateContent(prompt);
-    const response = await result.response;
-
-    if (!response || typeof response.text !== 'function') {
-      console.error(`[geminiFixer] Gemini API did not return a recognizable response object. Response:`, response);
-      throw new Error("Gemini API did not return a valid response structure.");
+    console.log(`[geminiFixer] Sending prompt to Gemini for ${originalFiles.length} files. User prompt provided: ${!!userPrompt}`);
+    
+    // Add a retry mechanism for the `fetch failed` error
+    let result;
+    const maxRetries = 3;
+    for (let i = 0; i < maxRetries; i++) {
+        try {
+            result = await model.generateContent(prompt);
+            break; // If successful, exit the loop
+        } catch (error) {
+            if (error.message.includes('fetch failed') && i < maxRetries - 1) {
+                console.warn(`[geminiFixer] Fetch failed, retrying... (${i + 1}/${maxRetries})`);
+                await new Promise(resolve => setTimeout(resolve, 2000)); // Wait 2 seconds before retrying
+            } else {
+                throw error; // If it's not a fetch error or it's the last retry, re-throw
+            }
+        }
+    }
+    
+    const response = result.response;
+    
+    if (!response || !response.text) {
+        throw new Error("Received an invalid response from the Gemini API.");
     }
 
-    let responseText = response.text();
-    console.log(`[geminiFixer] Raw response text from AI (first 500 chars): ${responseText.substring(0,500)}...`);
-
-    // responseMimeType: "application/json" should mean responseText is raw JSON.
-    // Fallback stripping if necessary, though ideally not needed.
-    let potentialJson = stripPotentialMarkdownJSON(responseText);
+    const responseText = response.text();
+    const potentialJson = stripPotentialMarkdownJSON(responseText);
 
     try {
-      const fixedFileObjects = JSON.parse(potentialJson);
-
-      if (!Array.isArray(fixedFileObjects)) {
-        console.error("[geminiFixer] AI response is not a JSON array as expected. Parsed:", fixedFileObjects);
-        throw new Error("AI response was not a JSON array.");
-      }
-
-      for (const fileObj of fixedFileObjects) {
-        if (typeof fileObj.filename !== 'string' || typeof fileObj.content !== 'string' || !['modified', 'created', 'unchanged'].includes(fileObj.action)) {
-          console.error("[geminiFixer] AI response contains malformed file object:", fileObj);
-          throw new Error("AI response included a malformed file object. Ensure 'filename'(string), 'content'(string), and valid 'action'(string) are present.");
+        const fixedFileObjects = JSON.parse(potentialJson);
+        if (!Array.isArray(fixedFileObjects)) {
+            throw new Error("AI response was valid JSON but not an array.");
         }
-      }
-      console.log(`[geminiFixer] Successfully parsed AI response. Number of files in AI output: ${fixedFileObjects.length}`);
-      return fixedFileObjects;
-
-    } catch (e) {
-      console.error("[geminiFixer] Failed to parse AI JSON response:", e.message);
-      console.error("[geminiFixer] AI Raw Response Text that failed parsing:", responseText); // Log full failing text
-      throw new Error(`AI response was not valid JSON or had incorrect structure: ${e.message}. Check server logs for raw AI output.`);
+        console.log(`[geminiFixer] Successfully parsed AI response. ${fixedFileObjects.length} file operations received.`);
+        return fixedFileObjects;
+    } catch (parseError) {
+        console.error("[geminiFixer] Failed to parse AI JSON response:", parseError.message);
+        console.error("[geminiFixer] Raw AI Response that failed parsing:", responseText);
+        throw new Error(`AI response was not valid JSON. Check server logs for the raw output.`);
     }
-
   } catch (error) {
-    console.error(`[geminiFixer] Error processing project bundle with Gemini:`, error.message);
-    if (error.stack) console.error(error.stack);
-    // Propagate the error. The route handler will create the final response to the client.
+    console.error(`[geminiFixer] Critical error during Gemini processing:`, error);
     throw error;
   }
 }
