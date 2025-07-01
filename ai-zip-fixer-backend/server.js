@@ -1,43 +1,62 @@
 const express = require('express');
 const cors = require('cors');
 const dotenv = require('dotenv');
-const path = require('path'); // Correctly required
+const path = require('path');
 const fs = require('fs');
+const helmet = require('helmet');
+const rateLimit = require('express-rate-limit');
+const logger = require('./config/logger');
 const uploadRoutes = require('./routes/upload');
 
+// ===== LOAD ENV VARIABLES =====
+dotenv.config();
+
 // ===== VERY TOP LEVEL ERROR HANDLERS =====
-process.on('uncaughtException', (error, origin) => {
-  console.error('!!!!!!!!!! UNCAUGHT EXCEPTION !!!!!!!!!!!');
-  console.error('Origin:', origin);
-  console.error('Error Stack:', error.stack || error); // Log stack for more details
-  // It's generally recommended to exit the process after an uncaught exception
-  // process.exit(1); // Uncomment this for production-like behavior
+process.on('uncaughtException', (error) => {
+  logger.error('!!!!!!!!!! UNCAUGHT EXCEPTION !!!!!!!!!!!', { error: error.stack || error });
+  // In production, it's critical to stop the process as it's in an unknown state.
+  // A process manager like PM2 will restart it.
+  process.exit(1);
 });
 
 process.on('unhandledRejection', (reason, promise) => {
-  console.error('!!!!!!!!!! UNHANDLED REJECTION !!!!!!!!!!!');
-  console.error('Promise:', promise);
-  console.error('Reason:', reason);
+  logger.error('!!!!!!!!!! UNHANDLED REJECTION !!!!!!!!!!!', { reason, promise });
 });
 // ===========================================
 
-dotenv.config();
 const app = express();
-
 const PORT = process.env.PORT || 5000;
 
+// ===== SECURITY & MIDDLEWARE =====
+app.use(helmet()); // Set security-related HTTP response headers
 app.use(cors()); // Enable CORS for all routes
-app.use(express.json({ limit: '100mb' }));
-app.use(express.urlencoded({ extended: true, limit: '100mb' }));
+app.use(express.json({ limit: '25mb' })); // Reduced limit for JSON payloads
+app.use(express.urlencoded({ extended: true, limit: '25mb' }));
 
-// Simple ping route for basic server health check
+// Request logging middleware
+app.use((req, res, next) => {
+    logger.info(`${req.method} ${req.originalUrl}`, { ip: req.ip });
+    next();
+});
+
+// Rate limiting to prevent abuse
+const apiLimiter = rateLimit({
+	windowMs: 15 * 60 * 1000, // 15 minutes
+	max: 100, // Limit each IP to 100 requests per `window` (here, per 15 minutes)
+	standardHeaders: true, // Return rate limit info in the `RateLimit-*` headers
+	legacyHeaders: false, // Disable the `X-RateLimit-*` headers
+    message: { success: false, message: 'Too many requests from this IP, please try again after 15 minutes.' }
+});
+
+// ===== ROUTES =====
+// Simple ping route for health check
 app.get("/api/ping", (req, res) => {
-  console.log("[/api/ping] Received ping request.");
+  logger.info("[/api/ping] Received ping request.");
   res.status(200).send("pong");
 });
 
-// API routes
-app.use("/api", uploadRoutes);
+// API routes with rate limiting
+app.use("/api", apiLimiter, uploadRoutes);
 
 // Static serving for fixed files
 const fixedDirectory = path.join(__dirname, "fixed");
@@ -48,31 +67,37 @@ app.get("/", (req, res) => {
   res.send("CodeFixer API is up and running!");
 });
 
+// Centralized error handling middleware
+app.use((err, req, res, next) => {
+    logger.error(`Unhandled error for ${req.method} ${req.path}:`, { error: err.stack || err });
+    res.status(500).json({ success: false, message: 'An internal server error occurred.' });
+});
+
+// ===== STARTUP LOGIC =====
 const ensureDirectoryExists = (dirPath) => {
   if (!fs.existsSync(dirPath)) {
     try {
       fs.mkdirSync(dirPath, { recursive: true });
-      console.log(`[Server Startup] Created directory: ${dirPath}`);
+      logger.info(`[Server Startup] Created directory: ${dirPath}`);
     } catch (e) {
-      console.error(`[Server Startup] FAILED to create directory: ${dirPath}`, e);
-      // Consider exiting if essential directories cannot be created
-      // process.exit(1);
+      logger.error(`[Server Startup] FAILED to create directory: ${dirPath}`, { error: e });
+      process.exit(1); // Exit if essential directories cannot be created
     }
   }
 };
 
 app.listen(PORT, () => {
-  console.log(`Server attempting to run on port ${PORT}`);
+  logger.info(`Server attempting to run on port ${PORT}`);
   ensureDirectoryExists(path.join(__dirname, "uploads"));
   ensureDirectoryExists(path.join(__dirname, "extracted"));
-  ensureDirectoryExists(fixedDirectory); // Use the variable defined above
+  ensureDirectoryExists(fixedDirectory);
+  ensureDirectoryExists(path.join(__dirname, "logs")); // For winston logs
 
   if (!process.env.GEMINI_API_KEY) {
-    console.warn("WARNING: GEMINI_API_KEY is not set in the .env file. The application might not function correctly.");
+    logger.warn("CRITICAL WARNING: GEMINI_API_KEY is not set in the .env file. The application will not function.");
   } else {
-    console.log("GEMINI_API_KEY is loaded.");
+    logger.info("GEMINI_API_KEY is loaded.");
   }
-  console.log(`Server is running on port ${PORT}`);
-  console.log(`Backend API accessible at http://localhost:${PORT}`);
-  console.log(`Try pinging the server at http://localhost:${PORT}/api/ping`);
+  logger.info(`Server is running on port ${PORT}`);
+  logger.info(`Backend API accessible at http://localhost:${PORT}`);
 });

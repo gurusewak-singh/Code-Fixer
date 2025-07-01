@@ -1,43 +1,95 @@
-import React, { useState } from 'react';
-import Preview from './Preview'; // Assuming Preview.jsx is in the same folder
+import React, { useState, useEffect } from 'react';
+import Preview from './Preview';
+import { motion } from 'framer-motion';
+import { PencilSquareIcon } from '@heroicons/react/24/solid';
 
-const FileList = ({ files }) => {
-  const [selectedFile, setSelectedFile] = useState(null);
+const FileList = ({ files, fixResult }) => {
+  const [selectedFilename, setSelectedFilename] = useState(null);
+  const [changedFiles, setChangedFiles] = useState(new Set());
 
-  if (!files || files.length === 0) {
-    return null; // Don't render if no files
-  }
+  // Derive the selected file object from the filename and the master files list
+  const selectedFile = files.find(f => f.filename === selectedFilename) || files[0] || null;
+
+  // When the master list of files changes, update the selection
+  useEffect(() => {
+    if (files && files.length > 0 && !selectedFilename) {
+      setSelectedFilename(files[0].filename);
+    }
+  }, [files, selectedFilename]);
+
+  // When a new fixResult arrives, update the set of changed files
+  useEffect(() => {
+    if (fixResult && fixResult.fileChanges) {
+      const newChangedFiles = new Set(fixResult.fileChanges.map(change => change.filename));
+      setChangedFiles(newChangedFiles);
+    }
+  }, [fixResult]);
 
   const handleFileClick = (file) => {
-    setSelectedFile(file);
-  };
+    setSelectedFilename(file.filename);
+    // Remove the file from the "changed" set when the user reviews it
+    if (changedFiles.has(file.filename)) {
+        setChangedFiles(prev => {
+            const newSet = new Set(prev);
+            newSet.delete(file.filename);
+            return newSet;
+        });
+    }
+  }
+
+  if (!files || files.length === 0) {
+    return null;
+  }
 
   return (
-    <div className="bg-gray-800 p-6 sm:p-8 rounded-xl shadow-2xl w-full max-w-lg mt-8 transform transition-all hover:scale-105 duration-300">
-      <h3 className="text-2xl font-semibold mb-6 text-center text-gray-100">
-        Extracted Code Files ({files.length})
-      </h3>
-      <p className="text-sm text-gray-400 mb-4 text-center">
-        Click on a file name to preview its content.
-      </p>
-      <ul className="space-y-2 max-h-72 overflow-y-auto pr-2 scrollbar-thin scrollbar-thumb-gray-600 scrollbar-track-gray-700">
-        {files.map((file, index) => (
-          <li
-            key={index}
-            onClick={() => handleFileClick(file)}
-            className={`p-3 rounded-md shadow-sm text-gray-300 text-sm cursor-pointer transition-colors duration-150
-                        ${selectedFile && selectedFile.filename === file.filename ? 'bg-violet-600 text-white ring-2 ring-violet-400' : 'bg-gray-700 hover:bg-gray-600'}`}
-          >
-            {file.filename}
-          </li>
-        ))}
-      </ul>
-      {selectedFile && (
-        <div className="mt-6 p-1 rounded-lg">
-          <Preview fileContent={selectedFile} />
+    <motion.div 
+      initial={{ opacity: 0, y: 20 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.5 }}
+      className="bg-gray-800/50 backdrop-blur-sm border border-gray-700 p-4 sm:p-6 rounded-xl shadow-2xl w-full flex flex-col lg:flex-row gap-4 lg:gap-6"
+      style={{ minHeight: '600px', maxHeight: '80vh' }}
+    >
+      {/* File Tree Column */}
+      <div className="lg:w-1/3 flex-shrink-0">
+        <h3 className="text-xl font-semibold mb-4 text-gray-200">
+          Project Files ({files.length})
+        </h3>
+        <div className="bg-gray-900/70 rounded-lg p-2 h-full max-h-48 lg:max-h-[calc(100%-4rem)] overflow-y-auto">
+          <ul className="space-y-1">
+            {files.map((file) => {
+                const isSelected = selectedFile && selectedFile.filename === file.filename;
+                const wasChanged = changedFiles.has(file.filename);
+                // Using a composite key forces a re-render when `wasChanged` status changes
+                const key = `${file.filename}-${wasChanged}`;
+
+                return (
+                    <li
+                        key={key}
+                        onClick={() => handleFileClick(file)}
+                        className={`p-2.5 rounded-md text-sm cursor-pointer transition-all duration-150 font-mono flex items-center justify-between
+                        ${isSelected
+                            ? 'bg-violet-600 text-white shadow-md'
+                            : 'text-gray-400 hover:bg-gray-700/50 hover:text-gray-200'
+                        }`}
+                    >
+                        <span className="truncate">{file.filename}</span>
+                        {wasChanged && (
+                            <motion.div initial={{scale:0}} animate={{scale:1}} className="ml-2 flex-shrink-0">
+                                <PencilSquareIcon className="h-4 w-4 text-yellow-300" title="Modified by AI" />
+                            </motion.div>
+                        )}
+                    </li>
+                );
+            })}
+          </ul>
         </div>
-      )}
-    </div>
+      </div>
+
+      {/* Preview Column */}
+      <div className="flex-grow min-w-0">
+        <Preview file={selectedFile} />
+      </div>
+    </motion.div>
   );
 };
 

@@ -1,18 +1,19 @@
 const { GoogleGenerativeAI, HarmCategory, HarmBlockThreshold } = require("@google/generative-ai");
+const logger = require("../config/logger");
 require("dotenv").config();
 
 if (!process.env.GEMINI_API_KEY) {
-  console.error("FATAL ERROR: GEMINI_API_KEY is not set in .env file. Please set it and restart the server.");
+  logger.error("FATAL ERROR: GEMINI_API_KEY is not set in .env file. Please set it and restart the server.");
   process.exit(1);
 }
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
 const safetySettings = [
-  { category: HarmCategory.HARM_CATEGORY_HARASSMENT, threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE },
-  { category: HarmCategory.HARM_CATEGORY_HATE_SPEECH, threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE },
-  { category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT, threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE },
-  { category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE },
+  { category: HarmCategory.HARM_CATEGORY_HARASSMENT, threshold: HarmBlockThreshold.BLOCK_NONE },
+  { category: HarmCategory.HARM_CATEGORY_HATE_SPEECH, threshold: HarmBlockThreshold.BLOCK_NONE },
+  { category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT, threshold: HarmBlockThreshold.BLOCK_NONE },
+  { category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, threshold: HarmBlockThreshold.BLOCK_NONE },
 ];
 
 function stripPotentialMarkdownJSON(text) {
@@ -29,99 +30,84 @@ function stripPotentialMarkdownJSON(text) {
 async function fixProjectBundle(originalFiles, userPrompt) {
   try {
     const model = genAI.getGenerativeModel({
-      model: "gemini-1.5-flash",
+      model: "gemini-1.5-flash", // Using flash for speed
       safetySettings,
       generationConfig: {
         responseMimeType: "application/json",
-      }
+      },
+      systemInstruction: `You are a highly precise AI code modification engine. Your only function is to execute a user's command on a given code and return a JSON object. You must not deviate from the user's command.`,
     });
 
     let projectFilesBundle = "";
     originalFiles.forEach(file => {
       projectFilesBundle += `### FILENAME: ${file.filename}\n${file.content}\n### --- END OF ${file.filename} ---\n\n`;
     });
-
-    const userInstructionSection = userPrompt
-      ? `
---- USER INSTRUCTIONS ---
-The user has provided specific instructions. You MUST prioritize these.
-User's Request: "${userPrompt}"
---- END USER INSTRUCTIONS ---
-`
-      : '';
-
-    // THE CORE FIX IS IN THIS PROMPT
+    
     const prompt = `
-You are a JSON generation expert acting as a world-class software engineer. Your ONLY output must be a single, valid JSON array.
+--- YOUR DIRECTIVE ---
+You have one critical task: analyze the "USER'S COMMAND" and execute it on the provided "PROJECT FILES".
 
-${userInstructionSection}
+--- OPERATING PROCEDURE ---
+1.  **Read the "USER'S COMMAND" carefully.** Understand its intent. Is it a request to fix, rewrite, add, or transform?
+2.  **Perform the requested operation** on the relevant file(s) from the "PROJECT FILES" section.
+3.  **VERIFY YOUR WORK:** Before generating the final JSON, ask yourself: "Does my new code *directly* accomplish what the user asked for?" For example, if the user asked for an "Armstrong number function" and you wrote a "Fibonacci function," your work is incorrect. You must correct it to match the user's command. This verification step is mandatory.
+4.  **Generate a response** in the specified JSON format.
 
-Analyze the provided project files. Your task is to fix all bugs, logical errors, and bad practices.
+--- USER'S COMMAND ---
+${userPrompt || "No specific command provided. Perform a general analysis, fix any obvious bugs or logical errors, and improve code quality."}
+--- END USER'S COMMAND ---
 
-Your response MUST be a single, valid JSON array of file objects. Each object MUST have this exact structure:
+--- RESPONSE FORMAT ---
+Your output must be a single, valid JSON object with this exact structure:
 {
-  "filename": "path/to/file.ext",
-  "content": "...",
-  "action": "modified" | "created" | "unchanged" | "deleted",
-  "explanation": "A clear summary of changes. This is mandatory."
+  "file_operations": [
+    {
+      "filename": "path/to/file.ext",
+      "content": "...",
+      "action": "modified" | "created",
+      "explanation": "A concise, one-sentence summary of what you did, directly reflecting the user's command."
+    }
+  ],
+  "suggested_changes": [
+    "A clear, actionable suggestion for a future improvement."
+  ]
 }
 
-**EXTREMELY CRITICAL RULE FOR THE "content" FIELD:**
-The value for the "content" field MUST be a SINGLE LINE JSON STRING. ALL special characters inside the file content MUST be escaped.
-- A backslash (\\) must become a double backslash (\\\\).
-- A double quote (") must become a backslash-quote (\\").
-- A newline must become a backslash-n (\\n).
-- A tab must become a backslash-t (\\t).
-- Other control characters (carriage return, form feed, etc.) must also be properly escaped.
-FAILURE TO DO THIS WILL BREAK THE APPLICATION. DO NOT USE multiline strings.
+**RULES:**
+- **ABSOLUTE PRIORITY:** The "USER'S COMMAND" overrides any other impulse. If the user says "change the file to an Armstrong number function," you do it, regardless of the original file content.
+- **EFFICIENCY:** The "file_operations" array MUST ONLY contain files that were 'modified' or 'created'.
+- **ESCAPING:** The "content" field MUST be a single-line JSON string with all special characters properly escaped.
 
---- START PROJECT FILES ---
+--- PROJECT FILES ---
 ${projectFilesBundle}
 --- END PROJECT FILES ---
 `;
 
-    console.log(`[geminiFixer] Sending prompt to Gemini for ${originalFiles.length} files. User prompt provided: ${!!userPrompt}`);
+    logger.info(`[geminiFixer] Sending prompt to Gemini for ${originalFiles.length} files. User prompt: "${userPrompt || 'General Analysis'}"`);
     
-    // Add a retry mechanism for the `fetch failed` error
-    let result;
-    const maxRetries = 3;
-    for (let i = 0; i < maxRetries; i++) {
-        try {
-            result = await model.generateContent(prompt);
-            break; // If successful, exit the loop
-        } catch (error) {
-            if (error.message.includes('fetch failed') && i < maxRetries - 1) {
-                console.warn(`[geminiFixer] Fetch failed, retrying... (${i + 1}/${maxRetries})`);
-                await new Promise(resolve => setTimeout(resolve, 2000)); // Wait 2 seconds before retrying
-            } else {
-                throw error; // If it's not a fetch error or it's the last retry, re-throw
-            }
-        }
-    }
+    const result = await model.generateContent(prompt);
     
     const response = result.response;
-    
     if (!response || !response.text) {
-        throw new Error("Received an invalid response from the Gemini API.");
+        throw new Error("Received an invalid or empty response from the Gemini API.");
     }
 
     const responseText = response.text();
     const potentialJson = stripPotentialMarkdownJSON(responseText);
 
     try {
-        const fixedFileObjects = JSON.parse(potentialJson);
-        if (!Array.isArray(fixedFileObjects)) {
-            throw new Error("AI response was valid JSON but not an array.");
+        const aiResponse = JSON.parse(potentialJson);
+        if (typeof aiResponse !== 'object' || !Array.isArray(aiResponse.file_operations) || !Array.isArray(aiResponse.suggested_changes)) {
+            throw new Error("AI response was not a valid object with 'file_operations' and 'suggested_changes' arrays.");
         }
-        console.log(`[geminiFixer] Successfully parsed AI response. ${fixedFileObjects.length} file operations received.`);
-        return fixedFileObjects;
+        logger.info(`[geminiFixer] Successfully parsed AI response. ${aiResponse.file_operations.length} file operations received.`);
+        return aiResponse;
     } catch (parseError) {
-        console.error("[geminiFixer] Failed to parse AI JSON response:", parseError.message);
-        console.error("[geminiFixer] Raw AI Response that failed parsing:", responseText);
-        throw new Error(`AI response was not valid JSON. Check server logs for the raw output.`);
+        logger.error("[geminiFixer] Failed to parse AI JSON response.", { errorMessage: parseError.message, rawResponse: responseText });
+        throw new Error(`AI returned malformed JSON. Check server logs for the raw output.`);
     }
   } catch (error) {
-    console.error(`[geminiFixer] Critical error during Gemini processing:`, error);
+    logger.error(`[geminiFixer] Critical error during Gemini processing:`, { error: error.stack || error });
     throw error;
   }
 }

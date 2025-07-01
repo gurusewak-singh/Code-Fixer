@@ -1,32 +1,43 @@
-import React, { useState } from 'react';
+import React, { useCallback, useState } from 'react';
+import { useDropzone } from 'react-dropzone';
+import { motion } from 'framer-motion';
 import { uploadProjectZip, uploadSingleFile } from '../services/api';
-// NEW: Import icons
-import { DocumentTextIcon, ArchiveBoxIcon, FolderOpenIcon } from '@heroicons/react/24/outline';
+import { DocumentTextIcon, ArchiveBoxIcon, ArrowUpTrayIcon } from '@heroicons/react/24/outline';
 
-const ACCEPTED_FILE_TYPES = [
-  '.zip', '.js', '.jsx', '.ts', '.tsx', '.py', '.html', '.css', '.scss', '.json',
-  '.java', '.c', '.cpp', '.h', '.hpp', '.cs', '.php', '.rb', '.go', '.swift',
-  '.kt', '.dart', '.rs', '.sh', '.md', '.txt', '.yml', '.yaml', 'Dockerfile'
-].join(',');
-
-const FileUpload = ({ onFilesUploaded, onError, onProcessing, isProcessing }) => {
+const FileUpload = ({ onFilesUploaded, onError, onProcessing }) => {
   const [file, setFile] = useState(null);
 
-  const handleFileChange = (event) => {
-    const selectedFile = event.target.files?.[0];
-    if (selectedFile) {
-      setFile(selectedFile);
+  const onDrop = useCallback((acceptedFiles) => {
+    if (acceptedFiles.length > 0) {
+      setFile(acceptedFiles[0]);
       onError(null);
     }
+  }, [onError]);
+
+  const { getRootProps, getInputProps, isDragActive, isDragAccept, isDragReject } = useDropzone({
+    onDrop,
+    multiple: false,
+    accept: {
+      'application/zip': ['.zip'],
+      'text/*': ['.js', '.jsx', '.ts', '.tsx', '.py', '.html', '.css', '.scss', '.json', '.md', '.txt', '.yml', '.yaml'],
+      'application/javascript': ['.js'],
+    }
+  });
+
+  const getBorderClassName = () => {
+    if (isDragAccept) return 'dropzone-accept';
+    if (isDragReject) return 'dropzone-reject';
+    if (isDragActive) return 'dropzone-active';
+    return 'border-gray-600 hover:border-violet-500';
   };
 
-  const handleFileUpload = async () => {
+  const handleUpload = async () => {
     if (!file) {
       onError('Please select a file to upload.');
       return;
     }
 
-    onProcessing(true, 'Uploading and preparing file...');
+    onProcessing(true, 'Uploading and preparing your files...');
     const formData = new FormData();
 
     try {
@@ -40,71 +51,50 @@ const FileUpload = ({ onFilesUploaded, onError, onProcessing, isProcessing }) =>
       }
       onFilesUploaded(responseData);
     } catch (error) {
-      onError(error.message || 'An unexpected error occurred during upload.');
+      const errorMessage = error.response?.data?.message || error.message || 'An unexpected error occurred during upload.';
+      onError(errorMessage);
     } finally {
       onProcessing(false);
     }
   };
 
   return (
-    <div className="bg-gray-800 p-6 sm:p-8 rounded-xl shadow-2xl w-full max-w-lg">
-      <label
-        htmlFor="file-upload"
-        className="relative block w-full p-8 text-center border-2 border-gray-600 border-dashed rounded-lg cursor-pointer hover:border-violet-500 transition-colors duration-200"
+    <motion.div 
+      initial={{ opacity: 0, scale: 0.95 }} 
+      animate={{ opacity: 1, scale: 1 }} 
+      className="bg-gray-800/50 backdrop-blur-sm border border-gray-700 p-6 sm:p-8 rounded-xl shadow-2xl w-full max-w-lg mx-auto"
+    >
+      <div
+        {...getRootProps()}
+        className={`relative block w-full p-8 text-center border-2 border-dashed rounded-lg cursor-pointer transition-all duration-300 ${getBorderClassName()}`}
       >
-        <div className="flex justify-center items-center space-x-8 text-gray-400">
-          <div className="text-center">
-            <DocumentTextIcon className="w-12 h-12 mx-auto" />
-            <p className="mt-1 text-xs">Single File</p>
-          </div>
-          <div className="text-center">
-            <ArchiveBoxIcon className="w-12 h-12 mx-auto" />
-            <p className="mt-1 text-xs">ZIP Archive</p>
-          </div>
-          <div className="text-center">
-            <FolderOpenIcon className="w-12 h-12 mx-auto" />
-            <p className="mt-1 text-xs">Any Project</p>
-          </div>
+        <input {...getInputProps()} />
+        <div className="flex justify-center items-center text-gray-400">
+            <ArchiveBoxIcon className="w-16 h-16" />
         </div>
 
-        <p className="mt-4 text-sm text-gray-300">
-          <span className="font-semibold text-violet-400">Click to upload</span> or drag and drop
+        <p className="mt-4 text-lg text-gray-300">
+          <span className="font-semibold text-violet-400">Click to upload</span> or drag & drop
         </p>
         
         {file ? (
-          <p className="mt-2 text-xs text-green-400">{file.name} selected</p>
+          <p className="mt-2 text-sm text-green-400 font-mono">{file.name} selected</p>
         ) : (
-          <p className="mt-2 text-xs text-gray-500">Any code file or a single .ZIP archive</p>
+          <p className="mt-2 text-xs text-gray-500">Any code file or a single .ZIP project archive</p>
         )}
+      </div>
 
-        <input
-          id="file-upload"
-          name="file-upload"
-          type="file"
-          className="sr-only"
-          onChange={handleFileChange}
-          accept={ACCEPTED_FILE_TYPES}
-        />
-      </label>
-
-      <button
-        onClick={handleFileUpload}
-        disabled={!file || isProcessing}
-        className="mt-6 w-full bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 text-white font-semibold py-3 px-4 rounded-lg shadow-md transition duration-150 ease-in-out disabled:opacity-50 disabled:cursor-wait flex items-center justify-center"
+      <motion.button
+        onClick={handleUpload}
+        disabled={!file}
+        className="mt-6 w-full bg-gradient-to-r from-purple-600 to-pink-600 text-white font-semibold py-3 px-4 rounded-lg shadow-md flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+        whileHover={{ scale: file ? 1.05 : 1 }}
+        whileTap={{ scale: file ? 0.95 : 1 }}
       >
-        {isProcessing ? (
-          <>
-            <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-            </svg>
-            Processing...
-          </>
-        ) : (
-          'Upload & Preview'
-        )}
-      </button>
-    </div>
+        <ArrowUpTrayIcon className="w-5 h-5"/>
+        Upload & Preview
+      </motion.button>
+    </motion.div>
   );
 };
 

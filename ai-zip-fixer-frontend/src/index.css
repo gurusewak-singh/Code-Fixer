@@ -1,20 +1,45 @@
-@import "tailwindcss";
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Custom Scrollbar Styles */
 ::-webkit-scrollbar {
   width: 8px;
   height: 8px;
 }
 ::-webkit-scrollbar-track {
-  background: #2d3748; /* gray-800 */
+  background: hsl(240 10% 15% / 1);
 }
 ::-webkit-scrollbar-thumb {
-  background: #4a5568; /* gray-600 */
+  background: hsl(240 5% 34% / 1);
   border-radius: 4px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #718096; /* gray-500 */
+  background: hsl(240 4% 46% / 1);
 }
 
-/* You can add any global base styles here if needed */
 body {
-  @apply bg-gray-900 text-gray-100 antialiased;
+  @apply bg-gray-900 text-gray-200 antialiased font-sans;
+  background-image:
+    radial-gradient(at 27% 37%, hsla(215, 98%, 61%, 0.1) 0px, transparent 50%),
+    radial-gradient(at 97% 21%, hsla(125, 98%, 72%, 0.1) 0px, transparent 50%),
+    radial-gradient(at 52% 99%, hsla(355, 98%, 61%, 0.1) 0px, transparent 50%),
+    radial-gradient(at 10% 29%, hsla(256, 96%, 61%, 0.1) 0px, transparent 50%),
+    radial-gradient(at 97% 96%, hsla(38, 60%, 74%, 0.1) 0px, transparent 50%),
+    radial-gradient(at 33% 50%, hsla(222, 67%, 73%, 0.1) 0px, transparent 50%),
+    radial-gradient(at 79% 53%, hsla(343, 68%, 79%, 0.1) 0px, transparent 50%);
+  background-color: #0d1117;
+}
+
+/* Custom styles for react-dropzone */
+.dropzone-active {
+    @apply border-violet-500 ring-4 ring-violet-500/30;
+}
+
+.dropzone-accept {
+    @apply border-green-500 ring-4 ring-green-500/30;
+}
+
+.dropzone-reject {
+    @apply border-red-500 ring-4 ring-red-500/30;
 }

@@ -1,43 +1,83 @@
-import React, { useState } from 'react';
+import React from 'react';
+import { AnimatePresence, motion } from 'framer-motion';
+import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
+import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
 
-const Preview = ({ fileContent }) => {
-  const [showFull, setShowFull] = useState(false);
+const getLanguage = (filename = '') => {
+  const extension = filename.split('.').pop()?.toLowerCase();
+  switch (extension) {
+    case 'js':
+    case 'jsx':
+      return 'javascript';
+    case 'ts':
+    case 'tsx':
+      return 'typescript';
+    case 'py':
+      return 'python';
+    case 'json':
+      return 'json';
+    case 'css':
+      return 'css';
+    case 'scss':
+      return 'scss';
+    case 'html':
+      return 'html';
+    case 'md':
+        return 'markdown'
+    default:
+      return 'clike'; // A generic default
+  }
+};
 
-  if (!fileContent || !fileContent.content) {
+const Preview = ({ file }) => {
+  if (!file) {
     return (
-      <div className="mt-4 p-4 bg-gray-700 rounded-lg text-gray-400">
-        Select a file to see its preview.
+      <div className="h-full flex items-center justify-center bg-gray-900/50 rounded-lg">
+        <p className="text-gray-500">Select a file to preview</p>
       </div>
     );
   }
 
-  const togglePreview = () => {
-    setShowFull(!showFull);
-  };
-
-  const displayContent = showFull
-    ? fileContent.content
-    : fileContent.content.slice(0, 500) + (fileContent.content.length > 500 ? '...' : '');
+  const language = getLanguage(file.filename);
 
   return (
-    <div className="mt-4 bg-gray-900 p-1 rounded-lg shadow-inner">
-      <div className="flex justify-between items-center mb-3 px-4 pt-3">
-        <h4 className="text-lg font-medium text-gray-200 truncate" title={fileContent.filename}>
-          {fileContent.filename}
-        </h4>
-        {fileContent.content.length > 500 && (
-         <button
-            onClick={togglePreview}
-            className="text-sm text-violet-400 hover:text-violet-300 hover:underline focus:outline-none"
-          >
-            {showFull ? 'Show Less' : 'Show More'}
-          </button>
-        )}
-      </div>
-      <pre className="bg-black text-gray-300 p-4 rounded-b-md text-xs sm:text-sm overflow-x-auto max-h-80 scrollbar-thin scrollbar-thumb-gray-700 scrollbar-track-gray-800">
-        <code>{displayContent || '(File is empty or content not available)'}</code>
-      </pre>
-    </div>
+    <AnimatePresence mode="wait">
+      <motion.div
+        key={file.filename}
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        exit={{ opacity: 0 }}
+        transition={{ duration: 0.2 }}
+        className="h-full flex flex-col bg-gray-900 rounded-lg shadow-inner overflow-hidden"
+      >
+        <div className="flex-shrink-0 bg-gray-800/50 px-4 py-2 border-b border-gray-700">
+          <h4 className="text-md font-medium text-gray-300 font-mono truncate" title={file.filename}>
+            {file.filename}
+          </h4>
+        </div>
+        <div className="flex-grow overflow-auto">
+           <SyntaxHighlighter
+            language={language}
+            style={vscDarkPlus}
+            customStyle={{
+                margin: 0,
+                padding: '1rem',
+                backgroundColor: 'transparent',
+                height: '100%',
+                fontSize: '0.875rem' // Equivalent to text-sm
+            }}
+            codeTagProps={{
+                style: {
+                    fontFamily: '"JetBrains Mono", monospace'
+                }
+            }}
+            showLineNumbers
+            >
+            {file.content || '(File is empty)'}
+            </SyntaxHighlighter>
+        </div>
+      </motion.div>
+    </AnimatePresence>
   );
 };
 

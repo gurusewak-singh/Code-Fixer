@@ -1,54 +1,66 @@
 import axios from 'axios';
 
+// This will be replaced by Vite during the build process with the value from your .env file
 export const BACKEND_ROOT_URL = import.meta.env.VITE_BACKEND_ROOT_URL;
 
 if (!BACKEND_ROOT_URL) {
-  throw new Error("CRITICAL: VITE_BACKEND_ROOT_URL is not defined in your .env file. Please create it and set it to your backend's URL (e.g., http://localhost:5000).");
+  // This provides a clear, immediate error during development if the .env file is missing or misconfigured.
+  throw new Error("CRITICAL: VITE_BACKEND_ROOT_URL is not defined. Please create a .env file in the frontend root and set it (e.g., VITE_BACKEND_ROOT_URL=http://localhost:5000).");
 }
 
-const API_BASE_URL = `${BACKEND_ROOT_URL}/api`;
+const api = axios.create({
+  baseURL: `${BACKEND_ROOT_URL}/api`,
+  timeout: 180000, // Set a long timeout (3 minutes) for potentially slow AI processing
+});
+
+// A function to handle errors more gracefully
+const handleError = (error, context) => {
+    console.error(`Error in ${context}:`, error);
+    // Prefer the backend's error message if available
+    const message = error.response?.data?.message || error.message || `An unknown error occurred in ${context}.`;
+    throw new Error(message);
+}
 
 /**
  * Uploads a full project ZIP archive.
  */
 export const uploadProjectZip = async (formData) => {
   try {
-    const response = await axios.post(`${API_BASE_URL}/upload`, formData, {
+    const response = await api.post('/upload', formData, {
       headers: { 'Content-Type': 'multipart/form-data' },
     });
     return response.data;
   } catch (error) {
-    console.error('Error in uploadProjectZip:', error);
-    throw new Error(error.response?.data?.message || error.message || 'ZIP file upload failed.');
+    handleError(error, 'uploadProjectZip');
   }
 };
 
 /**
- * [NEW] Uploads a single code file.
+ * Uploads a single code file.
  */
 export const uploadSingleFile = async (formData) => {
   try {
-    const response = await axios.post(`${API_BASE_URL}/upload-single`, formData, {
+    const response = await api.post('/upload-single', formData, {
       headers: { 'Content-Type': 'multipart/form-data' },
-    });
-    return response.data; // The backend will return the same structure as the zip upload.
-  } catch (error) {
-    console.error('Error in uploadSingleFile:', error);
-    throw new Error(error.response?.data?.message || error.message || 'Single file upload failed.');
-  }
-};
-
-// UPDATE THIS FUNCTION
-export const fixCodeFiles = async (filesToFix, extractedPath, userPrompt) => {
-  try {
-    const response = await axios.post(`${API_BASE_URL}/fix`, {
-      files: filesToFix,
-      extractedPath: extractedPath,
-      userPrompt: userPrompt, // <-- SEND THE PROMPT
     });
     return response.data;
   } catch (error) {
-    console.error('Error in fixCodeFiles:', error);
-    throw new Error(error.response?.data?.message || error.message || 'Failed to fix files.');
+    handleError(error, 'uploadSingleFile');
+  }
+};
+
+/**
+ * Sends files to the backend for AI fixing.
+ */
+export const fixCodeFiles = async (filesToFix, extractedPath, userPrompt) => {
+  try {
+    const response = await api.post('/fix', {
+      files: filesToFix,
+      extractedPath: extractedPath,
+      userPrompt: userPrompt,
+    });
+    return response.data;
+  } catch (error) {
+    handleError(error, 'fixCodeFiles');
   }
 };
