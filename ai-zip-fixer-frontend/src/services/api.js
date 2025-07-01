@@ -1,29 +1,22 @@
 import axios from 'axios';
 
-// This will be replaced by Vite during the build process with the value from your .env file
 export const BACKEND_ROOT_URL = import.meta.env.VITE_BACKEND_ROOT_URL;
 
 if (!BACKEND_ROOT_URL) {
-  // This provides a clear, immediate error during development if the .env file is missing or misconfigured.
-  throw new Error("CRITICAL: VITE_BACKEND_ROOT_URL is not defined. Please create a .env file in the frontend root and set it (e.g., VITE_BACKEND_ROOT_URL=http://localhost:5000).");
+  throw new Error("CRITICAL: VITE_BACKEND_ROOT_URL is not defined.");
 }
 
 const api = axios.create({
   baseURL: `${BACKEND_ROOT_URL}/api`,
-  timeout: 180000, // Set a long timeout (3 minutes) for potentially slow AI processing
+  timeout: 180000,
 });
 
-// A function to handle errors more gracefully
 const handleError = (error, context) => {
     console.error(`Error in ${context}:`, error);
-    // Prefer the backend's error message if available
     const message = error.response?.data?.message || error.message || `An unknown error occurred in ${context}.`;
     throw new Error(message);
 }
 
-/**
- * Uploads a full project ZIP archive.
- */
 export const uploadProjectZip = async (formData) => {
   try {
     const response = await api.post('/upload', formData, {
@@ -35,9 +28,6 @@ export const uploadProjectZip = async (formData) => {
   }
 };
 
-/**
- * Uploads a single code file.
- */
 export const uploadSingleFile = async (formData) => {
   try {
     const response = await api.post('/upload-single', formData, {
@@ -49,14 +39,10 @@ export const uploadSingleFile = async (formData) => {
   }
 };
 
-/**
- * Sends files to the backend for AI fixing.
- */
-export const fixCodeFiles = async (filesToFix, extractedPath, userPrompt) => {
+export const fixCodeFiles = async (filesToFix, userPrompt) => {
   try {
     const response = await api.post('/fix', {
       files: filesToFix,
-      extractedPath: extractedPath,
       userPrompt: userPrompt,
     });
     return response.data;
@@ -64,3 +50,42 @@ export const fixCodeFiles = async (filesToFix, extractedPath, userPrompt) => {
     handleError(error, 'fixCodeFiles');
   }
 };
+
+// This is the function with the corrected logic
+export const downloadProject = async (projectState) => {
+    // Defensive check to prevent the error before it happens.
+    if (!projectState || !Array.isArray(projectState) || projectState.length === 0) {
+        const error = new Error('No project data available to download.');
+        handleError(error, 'downloadProject - pre-flight check');
+        return; // Stop execution
+    }
+
+    try {
+        // THE FIX: The backend route expects an object `{ "projectState": [...] }`.
+        // We must wrap the projectState array in an object with that key.
+        const response = await api.post('/download', { projectState: projectState }, {
+            responseType: 'blob',
+        });
+        
+        const url = window.URL.createObjectURL(new Blob([response.data]));
+        const link = document.createElement('a');
+        link.href = url;
+
+        const contentDisposition = response.headers['content-disposition'];
+        let filename = 'fixed-project.zip';
+        if (contentDisposition) {
+            const filenameMatch = contentDisposition.match(/filename="(.+)"/);
+            if (filenameMatch && filenameMatch.length === 2)
+                filename = filenameMatch[1];
+        }
+
+        link.setAttribute('download', filename);
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        window.URL.revokeObjectURL(url);
+
+    } catch (error) {
+        handleError(error, 'downloadProject');
+    }
+}

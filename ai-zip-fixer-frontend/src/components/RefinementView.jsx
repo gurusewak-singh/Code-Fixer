@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { BACKEND_ROOT_URL } from '../services/api';
+import { downloadProject } from '../services/api';
 import { ArrowDownTrayIcon, PencilSquareIcon, PlusCircleIcon, SparklesIcon, ArrowPathIcon, LightBulbIcon, PaperAirplaneIcon } from '@heroicons/react/24/solid';
 
 const getActionIcon = (action) => {
@@ -14,22 +14,19 @@ const getActionIcon = (action) => {
     }
 }
 
-const RefinementView = ({ onRefine, resultData, onReset, isLoading, error }) => {
+// FIX: Update props to accept `files` directly
+const RefinementView = ({ onRefine, files, resultData, onReset, isLoading, error }) => {
     const [prompt, setPrompt] = useState('');
     const [lastFixSummary, setLastFixSummary] = useState(null);
+    const [isDownloading, setIsDownloading] = useState(false);
 
     useEffect(() => {
-        // This effect now ONLY runs when new resultData is received.
-        // It will be null on the first render, so this block won't execute, preventing the glitch.
         if (resultData && resultData.success) {
             setLastFixSummary({
-                message: resultData.message,
-                downloadUrl: resultData.downloadUrl,
                 fileChanges: resultData.fileChanges,
                 suggestedChanges: resultData.suggestedChanges
             });
         } else {
-            // If there's an error or no data, clear the summary.
             setLastFixSummary(null);
         }
     }, [resultData]);
@@ -37,6 +34,18 @@ const RefinementView = ({ onRefine, resultData, onReset, isLoading, error }) => 
     const handleRefineClick = () => {
         onRefine(prompt);
         setPrompt('');
+    };
+
+    const handleDownload = async () => {
+        setIsDownloading(true);
+        try {
+            // FIX: Use the `files` prop directly. It is guaranteed to be an array.
+            await downloadProject(files);
+        } catch (err) {
+            console.error("Download failed:", err);
+        } finally {
+            setIsDownloading(false);
+        }
     };
 
     return (
@@ -77,7 +86,7 @@ const RefinementView = ({ onRefine, resultData, onReset, isLoading, error }) => 
                             <h4 className="font-semibold text-gray-300 mb-2 text-md flex items-center gap-2"><LightBulbIcon className="w-5 h-5 text-yellow-300"/>Suggestions</h4>
                             <div className="space-y-2">
                                 {lastFixSummary.suggestedChanges.map((suggestion, index) => (
-                                    <button key={index} onClick={() => setPrompt(suggestion)} className="w-full text-left text-sm text-cyan-300 hover:text-cyan-200 bg-gray-700/50 hover:bg-gamma-700 p-2 rounded-md transition-colors">
+                                    <button key={index} onClick={() => setPrompt(suggestion)} className="w-full text-left text-sm text-cyan-300 hover:text-cyan-200 bg-gray-700/50 hover:bg-gray-700 p-2 rounded-md transition-colors">
                                         {suggestion}
                                     </button>
                                 ))}
@@ -101,11 +110,9 @@ const RefinementView = ({ onRefine, resultData, onReset, isLoading, error }) => 
                         </div>
                     )}
                      <div className="flex items-center gap-4 pt-2">
-                        {lastFixSummary.downloadUrl && (
-                            <a href={`${BACKEND_ROOT_URL}${lastFixSummary.downloadUrl}`} download target="_blank" rel="noopener noreferrer" className="flex-1 inline-flex items-center justify-center gap-2 bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded-lg shadow-md transition-colors">
-                                <ArrowDownTrayIcon className="w-5 h-5" /> Download .ZIP
-                            </a>
-                        )}
+                        <button onClick={handleDownload} disabled={isDownloading} className="flex-1 inline-flex items-center justify-center gap-2 bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded-lg shadow-md transition-colors disabled:opacity-50">
+                            {isDownloading ? 'Zipping...' : <><ArrowDownTrayIcon className="w-5 h-5" /> Download .ZIP</>}
+                        </button>
                         <button onClick={onReset} className="flex-1 inline-flex items-center justify-center gap-2 bg-gray-600 hover:bg-gray-700 text-gray-200 font-semibold py-2 px-4 rounded-lg shadow-md transition-colors">
                             <ArrowPathIcon className="w-5 h-5"/> Start Over
                         </button>

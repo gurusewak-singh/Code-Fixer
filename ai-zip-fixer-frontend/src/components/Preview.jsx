@@ -10,7 +10,7 @@ const getLanguage = (filename = '') => {
     case 'jsx':
       return 'javascript';
     case 'ts':
-    case 'tsx':
+        case 'tsx':
       return 'typescript';
     case 'py':
       return 'python';
@@ -25,9 +25,26 @@ const getLanguage = (filename = '') => {
     case 'md':
         return 'markdown'
     default:
-      return 'clike'; // A generic default
+      return 'clike';
   }
 };
+
+// ** THE FIX IS HERE **
+// This function takes a string that might be a JSON-escaped string
+// and returns it as a properly formatted multi-line string.
+const formatCodeForDisplay = (code) => {
+    if (typeof code !== 'string') return '';
+    try {
+        // The easiest way to un-escape a JSON string is to parse it.
+        // We wrap it in quotes to make it a valid JSON string literal.
+        return JSON.parse(`"${code}"`);
+    } catch (e) {
+        // If it fails to parse (e.g., it's already a normal string),
+        // just return the original code.
+        return code;
+    }
+}
+
 
 const Preview = ({ file }) => {
   if (!file) {
@@ -39,6 +56,8 @@ const Preview = ({ file }) => {
   }
 
   const language = getLanguage(file.filename);
+  // Apply the formatting function to the file content
+  const displayContent = formatCodeForDisplay(file.content);
 
   return (
     <AnimatePresence mode="wait">
@@ -64,7 +83,7 @@ const Preview = ({ file }) => {
                 padding: '1rem',
                 backgroundColor: 'transparent',
                 height: '100%',
-                fontSize: '0.875rem' // Equivalent to text-sm
+                fontSize: '0.875rem'
             }}
             codeTagProps={{
                 style: {
@@ -73,7 +92,7 @@ const Preview = ({ file }) => {
             }}
             showLineNumbers
             >
-            {file.content || '(File is empty)'}
+            {displayContent || '(File is empty)'}
             </SyntaxHighlighter>
         </div>
       </motion.div>
