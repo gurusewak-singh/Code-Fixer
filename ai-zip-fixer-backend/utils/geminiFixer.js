@@ -100,6 +100,25 @@ ${projectFilesBundle}
         if (typeof aiResponse !== 'object' || !Array.isArray(aiResponse.file_operations) || !Array.isArray(aiResponse.suggested_changes)) {
             throw new Error("AI response was not a valid object with 'file_operations' and 'suggested_changes' arrays.");
         }
+        
+        // Validate each file operation has required fields
+        for (let i = 0; i < aiResponse.file_operations.length; i++) {
+          const op = aiResponse.file_operations[i];
+          if (!op || typeof op !== 'object') {
+            throw new Error(`File operation at index ${i} is not a valid object.`);
+          }
+          if (typeof op.filename !== 'string' || op.filename.trim() === '') {
+            throw new Error(`File operation at index ${i} has invalid or missing 'filename'.`);
+          }
+          if (typeof op.content !== 'string') {
+            throw new Error(`File operation at index ${i} has invalid or missing 'content'.`);
+          }
+          // Validate action if present
+          if (op.action && !['modified', 'created'].includes(op.action)) {
+            logger.warn(`[geminiFixer] File operation at index ${i} has unusual action: ${op.action}`);
+          }
+        }
+        
         logger.info(`[geminiFixer] Successfully parsed AI response. ${aiResponse.file_operations.length} file operations received.`);
         return aiResponse;
     } catch (parseError) {
