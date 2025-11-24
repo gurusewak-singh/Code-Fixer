@@ -1,4 +1,5 @@
 const archiver = require("archiver");
+const path = require("path");
 const logger = require("../config/logger");
 
 const zipToBuffer = (files) => {
@@ -30,10 +31,27 @@ const zipToBuffer = (files) => {
       reject(err);
     });
 
-    files.forEach((file) => {
-      if (file && typeof file.fixedContent === 'string' && typeof file.filename === 'string') {
-        archive.append(Buffer.from(file.fixedContent, 'utf-8'), { name: file.filename });
+    files.forEach((file, index) => {
+      if (!file || typeof file !== 'object') {
+        logger.warn(`[zipToBuffer] Skipping invalid file at index ${index}: not an object`);
+        return;
       }
+      if (typeof file.filename !== 'string' || file.filename.trim() === '') {
+        logger.warn(`[zipToBuffer] Skipping file at index ${index}: invalid or empty filename`);
+        return;
+      }
+      if (typeof file.fixedContent !== 'string') {
+        logger.warn(`[zipToBuffer] Skipping file '${file.filename}': content is not a string`);
+        return;
+      }
+      
+      // Security: Prevent path traversal in zip files
+      const normalizedPath = path.normalize(file.filename).replace(/^(\.\.(\/|\\|$))+/, '');
+      if (normalizedPath !== file.filename) {
+        logger.warn(`[zipToBuffer] Normalized potentially unsafe path from '${file.filename}' to '${normalizedPath}'`);
+      }
+      
+      archive.append(Buffer.from(file.fixedContent, 'utf-8'), { name: normalizedPath });
     });
 
     archive.finalize();
